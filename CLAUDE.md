@@ -4,24 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a traffic simulator built with [Processing](https://processing.org/), a Java-based creative coding framework. Source files use the `.pde` extension. The Processing IDE compiles and runs sketches directly, and can export platform-specific executables (which are gitignored).
+This is a browser-based traffic simulator built with [p5.js](https://p5js.org/). The sketch runs entirely in the browser — no build step required.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `index.html` | Entry point; loads p5.js from CDN and `sketch.js` |
+| `sketch.js` | Full simulation: constants, `Car` class, `setup()`, `draw()`, `mousePressed()` |
 
 ## Development
 
-Processing sketches are run from the Processing IDE or via the `processing-java` CLI tool:
+Serve the project with any static file server and open `index.html`:
 
 ```sh
-# Run the sketch
-processing-java --sketch=$(pwd) --run
-
-# Export to a platform executable
-processing-java --sketch=$(pwd) --export
+# Python (built-in)
+python3 -m http.server 8080
+# then open http://localhost:8080 in your browser
 ```
 
-The main sketch file must share the name of the parent directory (e.g., `traffic-simulator.pde`). Additional `.pde` files in the same directory are compiled together as tabs/classes.
+No npm install or compilation needed — p5.js is loaded directly from the CDN.
 
 ## Architecture
 
-- The main `.pde` file contains `setup()` (runs once on start) and `draw()` (runs every frame as the main loop)
-- Additional `.pde` files define classes or helper functions and are compiled alongside the main sketch
-- No build artifacts are committed; the `application.*` and `applet` directories are all gitignored
+- `setup()` — runs once on start; creates the canvas and initializes cars
+- `draw()` — runs every frame (~60 fps); clears canvas, draws road, updates and displays all cars
+- `mousePressed()` — disrupts cars within `DISRUPTION_RADIUS` of the click point
+- `Car` class — manages position, speed, and a three-state machine (`normal` → `decelerating` → `accelerating` → `normal`)
+
+## Simulation behaviour
+
+- Cars travel downward and wrap to the top when they exit the bottom of the canvas.
+- Clicking near the road triggers a traffic disruption: affected cars brake to near-stop, then gradually accelerate back to default speed.
+- Car color reflects speed: white = full speed, red = near-stopped.
