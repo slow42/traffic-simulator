@@ -3,12 +3,47 @@
 <head>
   <meta charset="UTF-8">
   <title>Traffic Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    canvas { display: block; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    #flash {
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      pointer-events: none;
+    }
+    #flash.visible { opacity: 1; }
+    .mode-btn {
+      color: rgba(255, 255, 255, 0.35);
+      transition: color 0.15s, transform 0.15s, background 0.15s;
+    }
+    .mode-btn:hover {
+      color: rgba(255, 255, 255, 0.75);
+      transform: translateY(-1px);
+    }
+    .mode-btn.active {
+      background: white;
+      color: #111;
+    }
   </style>
 </head>
-<body>
+<body class="m-0 bg-[#111] flex flex-col items-center justify-center min-h-screen">
+  <div class="w-[600px]">
+    <nav class="h-[52px] flex items-center px-4 gap-3 bg-[#1a1a1a] border-b border-white/10">
+      <span class="text-[11px] font-medium tracking-[0.14em] uppercase text-white/30 shrink-0">Traffic Simulator</span>
+      <div class="flex gap-1.5 flex-1 justify-center">
+        <button data-mode="4way"       class="mode-btn active px-3.5 py-1.5 text-[13px] font-medium rounded-md">4-Way Stop</button>
+        <button data-mode="roundabout" class="mode-btn        px-3.5 py-1.5 text-[13px] font-medium rounded-md">Roundabout</button>
+        <button data-mode="lights"     class="mode-btn        px-3.5 py-1.5 text-[13px] font-medium rounded-md">Traffic Lights</button>
+      </div>
+      <span id="sim-clock" class="text-[13px] text-white/40 tabular-nums w-16 text-right shrink-0"></span>
+    </nav>
+    <div id="canvas-wrapper" class="relative overflow-hidden">
+      <div id="flash" class="absolute top-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/50 text-white/80 text-[12px] font-medium px-4 py-2 rounded-full border border-white/10 z-10"></div>
+    </div>
+  </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
   <script src="sketch.js"></script>
 </body>

@@ -4,9 +4,8 @@ const CAR_W          = 20;
 const CAR_H          = 35;
 const CANVAS_W       = 600;
 const CANVAS_H       = 600;
-const MENU_H         = 50;
 const CENTER_X       = 300;
-const CENTER_Y       = MENU_H + (CANVAS_H - MENU_H) / 2;  // 325
+const CENTER_Y       = CANVAS_H / 2;  // 300
 const INTERSECTION_R = 50;
 const STOP_LINE_DIST = 58;
 const BRAKE_DIST     = 130;
@@ -31,32 +30,20 @@ const MIN_SPAWN_FRAMES = 60;   // safety floor: never spawn faster than this man
 // Per-direction config — evaluated after constants above
 const DIR_CFG = {
   N: { dx: 0,  dy:  1, stopVal: CENTER_Y - STOP_LINE_DIST,
-       spawnX: CENTER_X + ROAD_W / 4, spawnY: MENU_H - CAR_H / 2 },
+       spawnX: CENTER_X - ROAD_W / 4, spawnY: -CAR_H / 2 },        // southbound → west lane
   S: { dx: 0,  dy: -1, stopVal: CENTER_Y + STOP_LINE_DIST,
-       spawnX: CENTER_X - ROAD_W / 4, spawnY: CANVAS_H + CAR_H / 2 },
+       spawnX: CENTER_X + ROAD_W / 4, spawnY: CANVAS_H + CAR_H / 2 }, // northbound → east lane
   E: { dx: -1, dy:  0, stopVal: CENTER_X + STOP_LINE_DIST,
-       spawnX: CANVAS_W + CAR_H / 2, spawnY: CENTER_Y + ROAD_W / 4 },
+       spawnX: CANVAS_W + CAR_H / 2, spawnY: CENTER_Y - ROAD_W / 4 }, // westbound → north lane
   W: { dx:  1, dy:  0, stopVal: CENTER_X - STOP_LINE_DIST,
-       spawnX: -CAR_H / 2, spawnY: CENTER_Y - ROAD_W / 4 },
+       spawnX: -CAR_H / 2, spawnY: CENTER_Y + ROAD_W / 4 },           // eastbound → south lane
 };
-
-// ── Menu config ──────────────────────────────────────────────
-const BUTTONS = [
-  { id: '4way',       label: '4-Way Stop'     },
-  { id: 'roundabout', label: 'Roundabout'     },
-  { id: 'lights',     label: 'Traffic Lights' },
-];
-const BTN_W = 160;
-const BTN_H = 34;
-const BTN_Y = MENU_H / 2;
-function btnX(i) { return 20 + i * (BTN_W + 10) + BTN_W / 2; }
 
 // ── Globals ──────────────────────────────────────────────────
 let cars = [];
 let activeMode = '4way';
 let nextSpawn = {};
-let flashMsg = '';
-let flashTimer = 0;
+let flashTimeout;
 
 // ── Intersection manager ─────────────────────────────────────
 const intersection = {
@@ -110,7 +97,7 @@ class Car {
   isOffCanvas() {
     const m = CAR_H / 2;
     if (this.dir === 'N') return this.y - m > CANVAS_H;
-    if (this.dir === 'S') return this.y + m < MENU_H;
+    if (this.dir === 'S') return this.y + m < 0;
     if (this.dir === 'E') return this.x + m < 0;
     /* W */               return this.x - m > CANVAS_W;
   }
@@ -209,11 +196,28 @@ function formatSimTime(h) {
   return `${h12}:${nf(mm, 2)} ${ampm}`;
 }
 
+// ── DOM helpers ──────────────────────────────────────────────
+function showFlash(msg) {
+  const el = document.getElementById('flash');
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(flashTimeout);
+  flashTimeout = setTimeout(() => el.classList.remove('visible'), 2000);
+}
+
 // ── p5 lifecycle ─────────────────────────────────────────────
 function setup() {
-  createCanvas(CANVAS_W, CANVAS_H);
-  textFont('sans-serif');
+  const cnv = createCanvas(CANVAS_W, CANVAS_H);
+  cnv.parent('canvas-wrapper');
   for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = 0;
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.mode !== activeMode) {
+        showFlash(btn.textContent + ' — coming soon!');
+      }
+    });
+  });
 }
 
 function draw() {
@@ -240,71 +244,15 @@ function draw() {
   intersection.update();
   cars = cars.filter(c => !c.isOffCanvas());
 
-  drawMenu(h);
-
-  if (flashTimer > 0) {
-    fill(255, 200);
-    noStroke();
-    textAlign(CENTER, CENTER);
-    textSize(13);
-    text(flashMsg, CANVAS_W / 2, MENU_H + 22);
-    flashTimer--;
-  }
-}
-
-function mousePressed() {
-  for (let i = 0; i < BUTTONS.length; i++) {
-    const bx = btnX(i);
-    if (abs(mouseX - bx) < BTN_W / 2 && abs(mouseY - BTN_Y) < BTN_H / 2) {
-      if (BUTTONS[i].id !== activeMode) {
-        flashMsg = BUTTONS[i].label + ' — coming soon!';
-        flashTimer = 120;
-      }
-    }
-  }
-}
-
-// ── drawMenu ─────────────────────────────────────────────────
-function drawMenu(h) {
-  fill(40);
-  noStroke();
-  rect(0, 0, CANVAS_W, MENU_H);
-
-  textAlign(CENTER, CENTER);
-  textSize(13);
-
-  for (let i = 0; i < BUTTONS.length; i++) {
-    const btn    = BUTTONS[i];
-    const active = btn.id === activeMode;
-    const bx     = btnX(i);
-
-    if (active) { fill(60); stroke(200); strokeWeight(1.5); }
-    else        { fill(45); stroke(90);  strokeWeight(1);   }
-
-    rectMode(CENTER);
-    rect(bx, BTN_Y, BTN_W, BTN_H, 5);
-
-    fill(active ? 240 : 100);
-    noStroke();
-    text(btn.label, bx, BTN_Y);
-  }
-
-  // Sim clock (top-right)
-  fill(160);
-  noStroke();
-  textAlign(RIGHT, CENTER);
-  textSize(12);
-  text(formatSimTime(h), CANVAS_W - 12, BTN_Y);
-
-  rectMode(CORNER);
+  document.getElementById('sim-clock').textContent = formatSimTime(h);
 }
 
 // ── drawIntersection ─────────────────────────────────────────
 function drawIntersection() {
   fill(80);
   noStroke();
-  rect(CENTER_X - ROAD_W / 2, MENU_H, ROAD_W, CANVAS_H - MENU_H); // N-S road
-  rect(0, CENTER_Y - ROAD_W / 2, CANVAS_W, ROAD_W);                 // E-W road
+  rect(CENTER_X - ROAD_W / 2, 0, ROAD_W, CANVAS_H); // N-S road
+  rect(0, CENTER_Y - ROAD_W / 2, CANVAS_W, ROAD_W);  // E-W road
 
   fill(95);
   rect(CENTER_X - INTERSECTION_R, CENTER_Y - INTERSECTION_R,
@@ -319,19 +267,18 @@ function drawLaneMarkers() {
   stroke(220, 220, 100);
   strokeWeight(2);
   const step = DASH_LEN + DASH_GAP;
-  const laneN = CENTER_X + ROAD_W / 4;  // 315
-  const laneS = CENTER_X - ROAD_W / 4;  // 285
-  const laneE = CENTER_Y + ROAD_W / 4;  // 340
-  const laneW = CENTER_Y - ROAD_W / 4;  // 310
 
-  for (let y = MENU_H; y < CENTER_Y - INTERSECTION_R; y += step)
-    line(laneN, y, laneN, y + DASH_LEN);
+  // N-S road center line (dashed, split by intersection box)
+  for (let y = 0; y < CENTER_Y - INTERSECTION_R; y += step)
+    line(CENTER_X, y, CENTER_X, y + DASH_LEN);
   for (let y = CENTER_Y + INTERSECTION_R; y < CANVAS_H; y += step)
-    line(laneS, y, laneS, y + DASH_LEN);
+    line(CENTER_X, y, CENTER_X, y + DASH_LEN);
+
+  // E-W road center line (dashed, split by intersection box)
   for (let x = CENTER_X + INTERSECTION_R; x < CANVAS_W; x += step)
-    line(x, laneE, x + DASH_LEN, laneE);
+    line(x, CENTER_Y, x + DASH_LEN, CENTER_Y);
   for (let x = 0; x < CENTER_X - INTERSECTION_R; x += step)
-    line(x, laneW, x + DASH_LEN, laneW);
+    line(x, CENTER_Y, x + DASH_LEN, CENTER_Y);
 
   noStroke();
 }
@@ -340,27 +287,27 @@ function drawStopLines() {
   stroke(255);
   strokeWeight(4);
 
-  line(CENTER_X,            CENTER_Y - STOP_LINE_DIST,
-       CENTER_X + ROAD_W/2, CENTER_Y - STOP_LINE_DIST); // N
+  line(CENTER_X - ROAD_W/2, CENTER_Y - STOP_LINE_DIST,
+       CENTER_X,            CENTER_Y - STOP_LINE_DIST); // N (southbound, west lane)
 
-  line(CENTER_X - ROAD_W/2, CENTER_Y + STOP_LINE_DIST,
-       CENTER_X,            CENTER_Y + STOP_LINE_DIST); // S
+  line(CENTER_X,            CENTER_Y + STOP_LINE_DIST,
+       CENTER_X + ROAD_W/2, CENTER_Y + STOP_LINE_DIST); // S (northbound, east lane)
 
-  line(CENTER_X + STOP_LINE_DIST, CENTER_Y,
-       CENTER_X + STOP_LINE_DIST, CENTER_Y + ROAD_W/2); // E
+  line(CENTER_X + STOP_LINE_DIST, CENTER_Y - ROAD_W/2,
+       CENTER_X + STOP_LINE_DIST, CENTER_Y);             // E (westbound, north lane)
 
-  line(CENTER_X - STOP_LINE_DIST, CENTER_Y - ROAD_W/2,
-       CENTER_X - STOP_LINE_DIST, CENTER_Y);             // W
+  line(CENTER_X - STOP_LINE_DIST, CENTER_Y,
+       CENTER_X - STOP_LINE_DIST, CENTER_Y + ROAD_W/2); // W (eastbound, south lane)
 
   noStroke();
 }
 
 function drawStopSigns() {
   const signs = [
-    { x: CENTER_X + ROAD_W/2 + 14, y: CENTER_Y - STOP_LINE_DIST },
-    { x: CENTER_X - ROAD_W/2 - 14, y: CENTER_Y + STOP_LINE_DIST },
-    { x: CENTER_X + STOP_LINE_DIST, y: CENTER_Y + ROAD_W/2 + 14 },
-    { x: CENTER_X - STOP_LINE_DIST, y: CENTER_Y - ROAD_W/2 - 14 },
+    { x: CENTER_X - ROAD_W/2 - 14, y: CENTER_Y - STOP_LINE_DIST }, // N (right of southbound = west)
+    { x: CENTER_X + ROAD_W/2 + 14, y: CENTER_Y + STOP_LINE_DIST }, // S (right of northbound = east)
+    { x: CENTER_X + STOP_LINE_DIST, y: CENTER_Y - ROAD_W/2 - 14 }, // E (right of westbound = north)
+    { x: CENTER_X - STOP_LINE_DIST, y: CENTER_Y + ROAD_W/2 + 14 }, // W (right of eastbound = south)
   ];
   for (const s of signs) drawOctagon(s.x, s.y, 12);
 }
