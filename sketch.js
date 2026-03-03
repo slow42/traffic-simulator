@@ -12,10 +12,21 @@ const STOP_LINE_DIST = 58;
 const BRAKE_DIST     = 130;
 const APPROACH_SPEED = 1.5;
 const PROCEED_SPEED  = 2.0;
-const SPAWN_INTERVAL = 150;
 const MAX_PER_ROAD   = 3;
 const DASH_LEN       = 20;
 const DASH_GAP       = 15;
+
+// ── Traffic-flow constants ────────────────────────────────────
+const SIM_SPEED        = 20;   // simulated minutes per real second (1 day ≈ 72 real sec)
+const SIM_START_HOUR   = 5;    // clock starts at 5 AM
+const BASE_FLOW        = { N: 0.8, S: 1.2, E: 0.5, W: 0.5 }; // veh per sim-hour at neutral
+const RUSH_HOURS       = [
+  { hour: 8,  multiplier: 2.0, bias: { N: 1.8, S: 0.5, E: 1.1, W: 1.1 } }, // morning: inbound
+  { hour: 17, multiplier: 2.0, bias: { N: 0.5, S: 1.8, E: 1.1, W: 1.1 } }, // evening: outbound
+];
+const PEAK_WIDTH       = 1.0;  // Gaussian σ in sim-hours — controls how sharp each peak is
+const ARRIVAL_NOISE    = 0.4;  // coefficient of variation on inter-arrival times (0 = uniform, 1 = very noisy)
+const MIN_SPAWN_FRAMES = 60;   // safety floor: never spawn faster than this many frames apart
 
 // Per-direction config — evaluated after constants above
 const DIR_CFG = {
@@ -43,7 +54,7 @@ function btnX(i) { return 20 + i * (BTN_W + 10) + BTN_W / 2; }
 // ── Globals ──────────────────────────────────────────────────
 let cars = [];
 let activeMode = '4way';
-let lastSpawn;
+let nextSpawn = {};
 let flashMsg = '';
 let flashTimer = 0;
 
@@ -167,27 +178,57 @@ class Car {
   }
 }
 
+// ── Flow helpers ─────────────────────────────────────────────
+function simHour() {
+  return (SIM_START_HOUR + (frameCount / 60) * SIM_SPEED / 60) % 24;
+}
+
+// Per-direction flow multiplier at a given sim-hour (base 1.0 + Gaussian rush peaks).
+function flowMult(dir, h) {
+  let m = 1.0;
+  for (const peak of RUSH_HOURS) {
+    const z = (h - peak.hour) / PEAK_WIDTH;
+    m += (peak.multiplier - 1) * peak.bias[dir] * exp(-0.5 * z * z);
+  }
+  return m;
+}
+
+// Frames between spawns for a direction at a given sim-hour, with arrival noise.
+function nextSpawnInterval(dir, h) {
+  const framesPerSimHour = (60 / SIM_SPEED) * 60; // at SIM_SPEED=20 → 180 frames/sim-hr
+  const base = framesPerSimHour / BASE_FLOW[dir] / flowMult(dir, h);
+  const jitter = randomGaussian(0, ARRIVAL_NOISE * base);
+  return max(MIN_SPAWN_FRAMES, round(base + jitter));
+}
+
+function formatSimTime(h) {
+  const hh = floor(h);
+  const mm = floor((h - hh) * 60);
+  const ampm = hh < 12 ? 'AM' : 'PM';
+  const h12  = hh % 12 || 12;
+  return `${h12}:${nf(mm, 2)} ${ampm}`;
+}
+
 // ── p5 lifecycle ─────────────────────────────────────────────
 function setup() {
   createCanvas(CANVAS_W, CANVAS_H);
   textFont('sans-serif');
-  lastSpawn = { N: -SPAWN_INTERVAL, S: -SPAWN_INTERVAL,
-                E: -SPAWN_INTERVAL, W: -SPAWN_INTERVAL };
+  for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = 0;
 }
 
 function draw() {
   background(30);
   drawIntersection();
 
-  // Spawn one car per direction when interval elapsed and road not full
+  // Spawn cars according to time-of-day flow rates
+  const h = simHour();
   for (const dir of ['N', 'S', 'E', 'W']) {
-    if (frameCount - lastSpawn[dir] >= SPAWN_INTERVAL) {
-      const count = cars.filter(c => c.dir === dir).length;
-      if (count < MAX_PER_ROAD) {
+    if (frameCount >= nextSpawn[dir]) {
+      if (cars.filter(c => c.dir === dir).length < MAX_PER_ROAD) {
         const cfg = DIR_CFG[dir];
         cars.push(new Car(cfg.spawnX, cfg.spawnY, dir));
-        lastSpawn[dir] = frameCount;
       }
+      nextSpawn[dir] = frameCount + nextSpawnInterval(dir, h);
     }
   }
 
@@ -199,7 +240,7 @@ function draw() {
   intersection.update();
   cars = cars.filter(c => !c.isOffCanvas());
 
-  drawMenu();
+  drawMenu(h);
 
   if (flashTimer > 0) {
     fill(255, 200);
@@ -224,7 +265,7 @@ function mousePressed() {
 }
 
 // ── drawMenu ─────────────────────────────────────────────────
-function drawMenu() {
+function drawMenu(h) {
   fill(40);
   noStroke();
   rect(0, 0, CANVAS_W, MENU_H);
@@ -247,6 +288,13 @@ function drawMenu() {
     noStroke();
     text(btn.label, bx, BTN_Y);
   }
+
+  // Sim clock (top-right)
+  fill(160);
+  noStroke();
+  textAlign(RIGHT, CENTER);
+  textSize(12);
+  text(formatSimTime(h), CANVAS_W - 12, BTN_Y);
 
   rectMode(CORNER);
 }
