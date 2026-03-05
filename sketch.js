@@ -14,12 +14,13 @@ var PROCEED_SPEED  = 2.0;
 var MIN_GAP        = 10;   // minimum bumper-to-bumper following gap (px)
 var FOLLOW_DECEL   = 0.08; // comfortable deceleration for car-following (px/frame²)
 var ACCEL_RATE     = 0.03; // acceleration from stop (px/frame²)
-const MAX_PER_ROAD   = 3;
+const MAX_PER_ROAD   = 20;
+var CONGESTION_SCALE = 1.0; // global multiplier on all congestion rates
 const DASH_LEN       = 20;
 const DASH_GAP       = 15;
 
 // ── Traffic-flow constants ────────────────────────────────────
-const SIM_SPEED        = 20;   // simulated minutes per real second (1 day ≈ 72 real sec)
+var SIM_SPEED          = 20;   // simulated minutes per real second (1 day ≈ 72 real sec)
 const SIM_START_HOUR   = 5;    // clock starts at 5 AM
 const BASE_FLOW        = { N: 0.8, S: 1.2, E: 0.5, W: 0.5 }; // veh per sim-hour at neutral
 const RUSH_HOURS       = [
@@ -27,7 +28,7 @@ const RUSH_HOURS       = [
   { hour: 17, multiplier: 2.0, bias: { N: 0.5, S: 1.8, E: 1.1, W: 1.1 } }, // evening: outbound
 ];
 const PEAK_WIDTH       = 1.0;  // Gaussian σ in sim-hours — controls how sharp each peak is
-const ARRIVAL_NOISE    = 0.4;  // coefficient of variation on inter-arrival times (0 = uniform, 1 = very noisy)
+var ARRIVAL_NOISE      = 0.4;  // coefficient of variation on inter-arrival times (0 = uniform, 1 = very noisy)
 const MIN_SPAWN_FRAMES = 60;   // safety floor: never spawn faster than this many frames apart
 
 // Per-direction config — evaluated after constants above
@@ -148,6 +149,7 @@ class Car {
 
   update(cars) {
     const cfg = DIR_CFG[this.dir];
+    const spd = SIM_SPEED / 20; // scale all movement with sim speed
 
     if (this.state === 'traveling') {
       this.speed = APPROACH_SPEED;
@@ -169,7 +171,7 @@ class Car {
       return;
 
     } else if (this.state === 'proceeding') {
-      this.speed = Math.min(this.speed + ACCEL_RATE, PROCEED_SPEED);
+      this.speed = Math.min(this.speed + ACCEL_RATE * spd, PROCEED_SPEED);
       if (this.hasCleared()) {
         metrics.throughput[this.dir]++;
         this.state = 'exiting';
@@ -186,8 +188,8 @@ class Car {
       if (cap < this.speed) this.speed = Math.max(0, cap);
     }
 
-    this.x += cfg.dx * this.speed;
-    this.y += cfg.dy * this.speed;
+    this.x += cfg.dx * this.speed * spd;
+    this.y += cfg.dy * this.speed * spd;
   }
 
   display() {
@@ -219,7 +221,7 @@ class Car {
 
 // ── Flow helpers ─────────────────────────────────────────────
 function simHour() {
-  return (SIM_START_HOUR + (frameCount / 60) * SIM_SPEED / 60) % 24;
+  return (SIM_START_HOUR + (millis() / 1000) * SIM_SPEED / 60) % 24;
 }
 
 // Per-direction flow multiplier at a given sim-hour (base 1.0 + Gaussian rush peaks).
@@ -246,7 +248,8 @@ function initCongestionSchedule() {
 function getCongestionRate(dir, h) {
   const s = congestionSchedule[dir];
   const h0 = Math.floor(h) % 24, h1 = (h0 + 1) % 24;
-  return s[h0] + (s[h1] - s[h0]) * (h - Math.floor(h));
+  const rate = s[h0] + (s[h1] - s[h0]) * (h - Math.floor(h));
+  return rate * CONGESTION_SCALE;
 }
 
 // Frames between spawns for a direction at a given sim-hour, with arrival noise.

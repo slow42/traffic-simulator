@@ -112,6 +112,11 @@
 
     <!-- Config panel -->
     <div id="config-panel" class="hidden bg-[#161616] p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30">Parameters</div>
+        <button id="btn-set-default-sliders" class="text-[11px] text-white/30 hover:text-white/60 transition-colors">Set as default</button>
+        <button id="btn-reset-sliders" class="text-[11px] text-white/30 hover:text-white/60 transition-colors">Reset to default</button>
+      </div>
       <div id="config-sliders"></div>
       <div class="mt-6">
         <div class="flex items-center justify-between mb-3">
@@ -160,7 +165,25 @@
       { label: 'Follow decel',     varName: 'FOLLOW_DECEL',   min: 0.01, max: 0.3,  step: 0.01,  fmt: v => v.toFixed(2) + ' px/f²' },
       { label: 'Brake distance',   varName: 'BRAKE_DIST',     min: 50,   max: 250,  step: 5,     fmt: v => v.toFixed(0) + ' px' },
       { label: 'Min gap',          varName: 'MIN_GAP',        min: 2,    max: 40,   step: 1,     fmt: v => v.toFixed(0) + ' px' },
+      { label: 'Congestion scale', varName: 'CONGESTION_SCALE', min: 0.1, max: 10, step: 0.1,  fmt: v => v.toFixed(1) + '×' },
+      { label: 'Arrival variance', varName: 'ARRIVAL_NOISE',   min: 0,   max: 2,  step: 0.05, fmt: v => v.toFixed(2) },
+      { label: 'Sim speed',        varName: 'SIM_SPEED',       min: 1,   max: 120, step: 1,   fmt: v => v.toFixed(0) + ' sim-min/s' },
     ];
+
+    // Capture hardcoded defaults before any overrides
+    const SLIDER_CODED_DEFAULTS = {};
+    for (const p of CONFIG_PARAMS) SLIDER_CODED_DEFAULTS[p.varName] = window[p.varName];
+
+    // Apply saved slider defaults on load
+    const _savedSliders = localStorage.getItem('sliderDefaults');
+    if (_savedSliders) {
+      try {
+        const _sv = JSON.parse(_savedSliders);
+        for (const p of CONFIG_PARAMS) {
+          if (_sv[p.varName] !== undefined) window[p.varName] = _sv[p.varName];
+        }
+      } catch(e) {}
+    }
 
     const configContainer = document.getElementById('config-sliders');
     for (const p of CONFIG_PARAMS) {
@@ -181,6 +204,26 @@
         document.getElementById(`cfg-val-${p.varName}`).textContent = p.fmt(v);
       });
     }
+
+    document.getElementById('btn-set-default-sliders').addEventListener('click', () => {
+      const vals = {};
+      for (const p of CONFIG_PARAMS) vals[p.varName] = window[p.varName];
+      localStorage.setItem('sliderDefaults', JSON.stringify(vals));
+      const btn = document.getElementById('btn-set-default-sliders');
+      btn.textContent = 'Saved!';
+      setTimeout(() => { btn.textContent = 'Set as default'; }, 1500);
+    });
+
+    document.getElementById('btn-reset-sliders').addEventListener('click', () => {
+      const saved = localStorage.getItem('sliderDefaults');
+      const defaults = saved ? JSON.parse(saved) : SLIDER_CODED_DEFAULTS;
+      for (const p of CONFIG_PARAMS) {
+        const v = defaults[p.varName] ?? SLIDER_CODED_DEFAULTS[p.varName];
+        window[p.varName] = v;
+        document.getElementById(`cfg-${p.varName}`).value = v;
+        document.getElementById(`cfg-val-${p.varName}`).textContent = p.fmt(v);
+      }
+    });
 
     // ── Live stats panel ───────────────────────────────────────
     const statsContainer = document.getElementById('live-stats');
@@ -445,6 +488,7 @@
       if (btnDebug.classList.contains('active')) { showCanvas(); return; }
       modeSelect.value = '__tab__';
       canvasRow.classList.add('hidden');
+      configPanel.classList.add('hidden');
       debugPanel.classList.remove('hidden');
       btnDebug.classList.add('active');
       btnConfig.classList.remove('active');
