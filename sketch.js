@@ -8,18 +8,20 @@ const CENTER_X       = 300;
 const CENTER_Y       = CANVAS_H / 2;  // 300
 const INTERSECTION_R = 50;
 const STOP_LINE_DIST = 58;
-var BRAKE_DIST     = 130;
-var APPROACH_SPEED = 1.5;
-var PROCEED_SPEED  = 2.0;
-var MIN_GAP        = 10;   // minimum bumper-to-bumper following gap (px)
-var FOLLOW_DECEL   = 0.08; // comfortable deceleration for car-following (px/frame²)
-var ACCEL_RATE     = 0.03; // acceleration from stop (px/frame²)
-const MAX_PER_ROAD   = 3;
+var BRAKE_DIST     = 60;    // 8 m stopping distance (ROAD_W=60px=8m → 7.5px/m)
+var APPROACH_SPEED = 0.35;  // 10 km/h at SIM_SPEED=1 (real time)
+var PROCEED_SPEED  = 0.87;  // 25 km/h at SIM_SPEED=1 (real time)
+var MIN_GAP        = 10;    // minimum bumper-to-bumper following gap (px)
+var FOLLOW_DECEL   = 0.015; // comfortable deceleration for car-following (px/frame²)
+var ACCEL_RATE     = 0.003; // acceleration from stop (px/frame²); 0→25 km/h in ~5 real-sec
+const MAX_PER_ROAD   = 20;
+var CONGESTION_SCALE = 1.0; // global multiplier on all congestion rates
 const DASH_LEN       = 20;
 const DASH_GAP       = 15;
 
 // ── Traffic-flow constants ────────────────────────────────────
-const SIM_SPEED        = 20;   // simulated minutes per real second (1 day ≈ 72 real sec)
+var SIM_SPEED          = 60;   // real-time multiplier: 1 = real time, 60 = 1 sim-min/real-sec (1 day ≈ 24 min)
+var SIM_TIME_OFFSET    = 0;    // hours added to sim time (used by jumpToHour)
 const SIM_START_HOUR   = 5;    // clock starts at 5 AM
 const BASE_FLOW        = { N: 0.8, S: 1.2, E: 0.5, W: 0.5 }; // veh per sim-hour at neutral
 const RUSH_HOURS       = [
@@ -27,7 +29,7 @@ const RUSH_HOURS       = [
   { hour: 17, multiplier: 2.0, bias: { N: 0.5, S: 1.8, E: 1.1, W: 1.1 } }, // evening: outbound
 ];
 const PEAK_WIDTH       = 1.0;  // Gaussian σ in sim-hours — controls how sharp each peak is
-const ARRIVAL_NOISE    = 0.4;  // coefficient of variation on inter-arrival times (0 = uniform, 1 = very noisy)
+var ARRIVAL_NOISE      = 0.4;  // coefficient of variation on inter-arrival times (0 = uniform, 1 = very noisy)
 const MIN_SPAWN_FRAMES = 60;   // safety floor: never spawn faster than this many frames apart
 
 // Per-direction config — evaluated after constants above
@@ -48,7 +50,7 @@ let activeMode = '4way';
 let nextSpawn = {};
 let flashTimeout;
 
-let congestionMult = { N: 1, S: 1, E: 1, W: 1 };
+let congestionSchedule = null;
 
 let metrics = {
   throughput: { N: 0, S: 0, E: 0, W: 0 },
@@ -57,7 +59,8 @@ let metrics = {
   waitCount:  { N: 0, S: 0, E: 0, W: 0 },
   utilFrames: 0,
 };
-const SAMPLE_INTERVAL = 90; // frames (~1.5 real-sec ≈ 0.5 sim-min)
+const SAMPLE_INTERVAL = 60; // frames (= 1 real-sec at 60fps)
+let lastThroughput = { N: 0, S: 0, E: 0, W: 0 }; // cars that cleared in the last completed second
 let simHistory = {
   simTime: [],
   N: { tp: [], q: [], w: [] },
@@ -148,6 +151,7 @@ class Car {
 
   update(cars) {
     const cfg = DIR_CFG[this.dir];
+    const spd = SIM_SPEED; // real-time multiplier: SIM_SPEED=1 → physical real-time speed
 
     if (this.state === 'traveling') {
       this.speed = APPROACH_SPEED;
@@ -169,7 +173,7 @@ class Car {
       return;
 
     } else if (this.state === 'proceeding') {
-      this.speed = Math.min(this.speed + ACCEL_RATE, PROCEED_SPEED);
+      this.speed = Math.min(this.speed + ACCEL_RATE * spd, PROCEED_SPEED);
       if (this.hasCleared()) {
         metrics.throughput[this.dir]++;
         this.state = 'exiting';
@@ -186,8 +190,8 @@ class Car {
       if (cap < this.speed) this.speed = Math.max(0, cap);
     }
 
-    this.x += cfg.dx * this.speed;
-    this.y += cfg.dy * this.speed;
+    this.x += cfg.dx * this.speed * spd;
+    this.y += cfg.dy * this.speed * spd;
   }
 
   display() {
@@ -219,7 +223,23 @@ class Car {
 
 // ── Flow helpers ─────────────────────────────────────────────
 function simHour() {
-  return (SIM_START_HOUR + (frameCount / 60) * SIM_SPEED / 60) % 24;
+  return (SIM_START_HOUR + (millis() / 1000) * SIM_SPEED / 3600 + SIM_TIME_OFFSET) % 24;
+}
+
+function jumpToHour(h) {
+  SIM_TIME_OFFSET = h - SIM_START_HOUR - (millis() / 1000) * SIM_SPEED / 3600;
+  cars = [];
+  intersection.queue = [];
+  intersection.active = null;
+  for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = frameCount;
+  simHistory.simTime = [];
+  for (const dir of ['N', 'S', 'E', 'W']) simHistory[dir] = { tp: [], q: [], w: [] };
+  simHistory.util = [];
+  metrics.throughput = { N: 0, S: 0, E: 0, W: 0 };
+  metrics.totalWait  = { N: 0, S: 0, E: 0, W: 0 };
+  metrics.waitCount  = { N: 0, S: 0, E: 0, W: 0 };
+  metrics.utilFrames = 0;
+  lastThroughput = { N: 0, S: 0, E: 0, W: 0 };
 }
 
 // Per-direction flow multiplier at a given sim-hour (base 1.0 + Gaussian rush peaks).
@@ -232,11 +252,29 @@ function flowMult(dir, h) {
   return m;
 }
 
+function initCongestionSchedule() {
+  const saved = localStorage.getItem('congestionScheduleDefault');
+  if (saved) {
+    try { return JSON.parse(saved); } catch(e) {}
+  }
+  const s = {};
+  for (const dir of ['N','S','E','W'])
+    s[dir] = Array.from({length: 24}, (_, h) => BASE_FLOW[dir] * flowMult(dir, h));
+  return s;
+}
+
+function getCongestionRate(dir, h) {
+  const s = congestionSchedule[dir];
+  const h0 = Math.floor(h) % 24, h1 = (h0 + 1) % 24;
+  const rate = s[h0] + (s[h1] - s[h0]) * (h - Math.floor(h));
+  return rate * CONGESTION_SCALE;
+}
+
 // Frames between spawns for a direction at a given sim-hour, with arrival noise.
 function nextSpawnInterval(dir, h) {
-  if (congestionMult[dir] === 0) return 1e9;
-  const framesPerSimHour = (60 / SIM_SPEED) * 60; // at SIM_SPEED=20 → 180 frames/sim-hr
-  const base = framesPerSimHour / BASE_FLOW[dir] / flowMult(dir, h) / congestionMult[dir];
+  if (getCongestionRate(dir, h) <= 0) return 1e9;
+  const framesPerSimHour = 216000 / SIM_SPEED; // 1 sim-hr = 3600/SIM_SPEED real-sec × 60fps
+  const base = framesPerSimHour / getCongestionRate(dir, h);
   const jitter = randomGaussian(0, ARRIVAL_NOISE * base);
   return max(MIN_SPAWN_FRAMES, round(base + jitter));
 }
@@ -244,9 +282,10 @@ function nextSpawnInterval(dir, h) {
 function formatSimTime(h) {
   const hh = floor(h);
   const mm = floor((h - hh) * 60);
+  const ss = floor(((h - hh) * 3600) % 60);
   const ampm = hh < 12 ? 'AM' : 'PM';
   const h12  = hh % 12 || 12;
-  return `${h12}:${nf(mm, 2)} ${ampm}`;
+  return `${h12}:${nf(mm, 2)}:${nf(ss, 2)} ${ampm}`;
 }
 
 // ── DOM helpers ──────────────────────────────────────────────
@@ -262,6 +301,7 @@ function showFlash(msg) {
 function setup() {
   const cnv = createCanvas(CANVAS_W, CANVAS_H);
   cnv.parent('canvas-wrapper');
+  congestionSchedule = initCongestionSchedule();
   for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = 0;
 }
 
@@ -297,6 +337,7 @@ function draw() {
   if (frameCount % SAMPLE_INTERVAL === 0) {
     simHistory.simTime.push(simHour());
     for (const dir of ['N','S','E','W']) {
+      lastThroughput[dir] = metrics.throughput[dir]; // capture before reset for live display
       simHistory[dir].tp.push(metrics.throughput[dir]);
       simHistory[dir].q.push(metrics.queueLen[dir]);
       const avgWait = metrics.waitCount[dir] > 0
