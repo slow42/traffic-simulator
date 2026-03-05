@@ -8,9 +8,12 @@ const CENTER_X       = 300;
 const CENTER_Y       = CANVAS_H / 2;  // 300
 const INTERSECTION_R = 50;
 const STOP_LINE_DIST = 58;
-const BRAKE_DIST     = 130;
-const APPROACH_SPEED = 1.5;
-const PROCEED_SPEED  = 2.0;
+var BRAKE_DIST     = 130;
+var APPROACH_SPEED = 1.5;
+var PROCEED_SPEED  = 2.0;
+var MIN_GAP        = 10;   // minimum bumper-to-bumper following gap (px)
+var FOLLOW_DECEL   = 0.08; // comfortable deceleration for car-following (px/frame²)
+var ACCEL_RATE     = 0.03; // acceleration from stop (px/frame²)
 const MAX_PER_ROAD   = 3;
 const DASH_LEN       = 20;
 const DASH_GAP       = 15;
@@ -45,6 +48,25 @@ let activeMode = '4way';
 let nextSpawn = {};
 let flashTimeout;
 
+let congestionMult = { N: 1, S: 1, E: 1, W: 1 };
+
+let metrics = {
+  throughput: { N: 0, S: 0, E: 0, W: 0 },
+  queueLen:   { N: 0, S: 0, E: 0, W: 0 },
+  totalWait:  { N: 0, S: 0, E: 0, W: 0 },
+  waitCount:  { N: 0, S: 0, E: 0, W: 0 },
+  utilFrames: 0,
+};
+const SAMPLE_INTERVAL = 90; // frames (~1.5 real-sec ≈ 0.5 sim-min)
+let simHistory = {
+  simTime: [],
+  N: { tp: [], q: [], w: [] },
+  S: { tp: [], q: [], w: [] },
+  E: { tp: [], q: [], w: [] },
+  W: { tp: [], q: [], w: [] },
+  util: [],
+};
+
 // ── Intersection manager ─────────────────────────────────────
 const intersection = {
   queue:  [],
@@ -70,6 +92,7 @@ class Car {
     this.dir   = dir;
     this.speed = APPROACH_SPEED;
     this.state = 'traveling';
+    this.stoppedAt = null;
   }
 
   distToStop() {
@@ -103,11 +126,27 @@ class Car {
   }
 
   go() {
+    if (this.stoppedAt !== null) {
+      metrics.totalWait[this.dir] += frameCount - this.stoppedAt;
+      metrics.waitCount[this.dir]++;
+    }
     this.state = 'proceeding';
-    this.speed = PROCEED_SPEED;
   }
 
-  update() {
+  findLeader(cars) {
+    const cfg = DIR_CFG[this.dir];
+    let bestAhead = Infinity;
+    let bestCar   = null;
+    for (const other of cars) {
+      if (other === this || other.dir !== this.dir) continue;
+      const ahead = (other.x - this.x) * cfg.dx + (other.y - this.y) * cfg.dy;
+      if (ahead > 0 && ahead < bestAhead) { bestAhead = ahead; bestCar = other; }
+    }
+    if (!bestCar) return null;
+    return { car: bestCar, gap: bestAhead - CAR_H };
+  }
+
+  update(cars) {
     const cfg = DIR_CFG[this.dir];
 
     if (this.state === 'traveling') {
@@ -120,6 +159,7 @@ class Car {
         this.clampToStop();
         this.speed = 0;
         this.state = 'stopped';
+        this.stoppedAt = frameCount;
         intersection.register(this);
         return;
       }
@@ -129,13 +169,22 @@ class Car {
       return;
 
     } else if (this.state === 'proceeding') {
-      this.speed = PROCEED_SPEED;
+      this.speed = Math.min(this.speed + ACCEL_RATE, PROCEED_SPEED);
       if (this.hasCleared()) {
+        metrics.throughput[this.dir]++;
         this.state = 'exiting';
         intersection.active = null;
       }
 
     } /* exiting — keep moving at PROCEED_SPEED */
+
+    // Car-following: cap speed so we can stop within MIN_GAP of the leader
+    const leader = this.findLeader(cars);
+    if (leader) {
+      const cap = leader.car.speed +
+        Math.sqrt(2 * FOLLOW_DECEL * Math.max(0, leader.gap - MIN_GAP));
+      if (cap < this.speed) this.speed = Math.max(0, cap);
+    }
 
     this.x += cfg.dx * this.speed;
     this.y += cfg.dy * this.speed;
@@ -143,15 +192,18 @@ class Car {
 
   display() {
     let r, g, b;
-    if (this.state === 'stopped') {
-      [r, g, b] = [220, 30, 30];
-    } else if (this.state === 'proceeding' || this.state === 'exiting') {
-      [r, g, b] = [255, 210, 0];
-    } else {
-      const ratio = this.speed / APPROACH_SPEED;
+    if (this.state === 'braking' || this.state === 'stopped') {
+      const t = 1 - (this.speed / APPROACH_SPEED);  // 0 = full speed (white), 1 = stopped (red)
       r = 255;
-      g = Math.floor(ratio * 255);
-      b = Math.floor(ratio * 255);
+      g = Math.floor(255 * (1 - t));
+      b = Math.floor(255 * (1 - t));
+    } else if (this.state === 'proceeding') {
+      const t = Math.max(0, 1 - (this.speed / PROCEED_SPEED));  // 1 = just started (dark green), 0 = full speed (white)
+      r = Math.floor(255 * (1 - t));
+      g = 255;
+      b = Math.floor(255 * (1 - t));
+    } else {
+      [r, g, b] = [255, 255, 255];
     }
 
     push();
@@ -182,8 +234,9 @@ function flowMult(dir, h) {
 
 // Frames between spawns for a direction at a given sim-hour, with arrival noise.
 function nextSpawnInterval(dir, h) {
+  if (congestionMult[dir] === 0) return 1e9;
   const framesPerSimHour = (60 / SIM_SPEED) * 60; // at SIM_SPEED=20 → 180 frames/sim-hr
-  const base = framesPerSimHour / BASE_FLOW[dir] / flowMult(dir, h);
+  const base = framesPerSimHour / BASE_FLOW[dir] / flowMult(dir, h) / congestionMult[dir];
   const jitter = randomGaussian(0, ARRIVAL_NOISE * base);
   return max(MIN_SPAWN_FRAMES, round(base + jitter));
 }
@@ -210,14 +263,6 @@ function setup() {
   const cnv = createCanvas(CANVAS_W, CANVAS_H);
   cnv.parent('canvas-wrapper');
   for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = 0;
-
-  document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.mode !== activeMode) {
-        showFlash(btn.textContent + ' — coming soon!');
-      }
-    });
-  });
 }
 
 function draw() {
@@ -237,8 +282,33 @@ function draw() {
   }
 
   for (const car of cars) {
-    car.update();
+    car.update(cars);
     car.display();
+  }
+
+  // Snapshot queue lengths each frame
+  for (const dir of ['N','S','E','W']) {
+    metrics.queueLen[dir] = cars.filter(c => c.dir === dir &&
+      (c.state === 'stopped' || c.state === 'braking')).length;
+  }
+  if (intersection.active) metrics.utilFrames++;
+
+  // Sample to history every SAMPLE_INTERVAL frames
+  if (frameCount % SAMPLE_INTERVAL === 0) {
+    simHistory.simTime.push(simHour());
+    for (const dir of ['N','S','E','W']) {
+      simHistory[dir].tp.push(metrics.throughput[dir]);
+      simHistory[dir].q.push(metrics.queueLen[dir]);
+      const avgWait = metrics.waitCount[dir] > 0
+        ? (metrics.totalWait[dir] / metrics.waitCount[dir] / 60).toFixed(1)
+        : 0;
+      simHistory[dir].w.push(+avgWait);
+      metrics.throughput[dir] = 0;
+      metrics.totalWait[dir]  = 0;
+      metrics.waitCount[dir]  = 0;
+    }
+    simHistory.util.push(+(metrics.utilFrames / SAMPLE_INTERVAL * 100).toFixed(1));
+    metrics.utilFrames = 0;
   }
 
   intersection.update();

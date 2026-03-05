@@ -15,36 +15,353 @@
       pointer-events: none;
     }
     #flash.visible { opacity: 1; }
-    .mode-btn {
+    .tab-btn {
       color: rgba(255, 255, 255, 0.35);
       transition: color 0.15s, transform 0.15s, background 0.15s;
     }
-    .mode-btn:hover {
+    .tab-btn:hover {
       color: rgba(255, 255, 255, 0.75);
       transform: translateY(-1px);
     }
-    .mode-btn.active {
+    .tab-btn.active {
       background: white;
       color: #111;
+    }
+    #mode-select {
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.8);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      padding: 4px 28px 4px 10px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(255,255,255,0.5)' fill='none' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    #mode-select option {
+      background: #1a1a1a;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
     }
   </style>
 </head>
 <body class="m-0 bg-[#111] flex flex-col items-center justify-center min-h-screen">
-  <div class="w-[600px]">
+  <div class="w-[960px]">
     <nav class="h-[52px] flex items-center px-4 gap-3 bg-[#1a1a1a] border-b border-white/10">
       <span class="text-[11px] font-medium tracking-[0.14em] uppercase text-white/30 shrink-0">Traffic Simulator</span>
-      <div class="flex gap-1.5 flex-1 justify-center">
-        <button data-mode="4way"       class="mode-btn active px-3.5 py-1.5 text-[13px] font-medium rounded-md">4-Way Stop</button>
-        <button data-mode="roundabout" class="mode-btn        px-3.5 py-1.5 text-[13px] font-medium rounded-md">Roundabout</button>
-        <button data-mode="lights"     class="mode-btn        px-3.5 py-1.5 text-[13px] font-medium rounded-md">Traffic Lights</button>
+      <div class="flex-1 flex justify-center">
+        <select id="mode-select">
+          <option value="__tab__" hidden></option>
+          <option value="4way">4-Way Stop</option>
+          <option value="roundabout">Roundabout</option>
+          <option value="lights">Traffic Lights</option>
+        </select>
+      </div>
+      <div class="flex gap-1.5 shrink-0">
+        <button id="btn-debug"  class="tab-btn px-3.5 py-1.5 text-[13px] font-medium rounded-md">Debug</button>
+        <button id="btn-config" class="tab-btn px-3.5 py-1.5 text-[13px] font-medium rounded-md">Config</button>
       </div>
       <span id="sim-clock" class="text-[13px] text-white/40 tabular-nums w-16 text-right shrink-0"></span>
     </nav>
-    <div id="canvas-wrapper" class="relative overflow-hidden">
-      <div id="flash" class="absolute top-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/50 text-white/80 text-[12px] font-medium px-4 py-2 rounded-full border border-white/10 z-10"></div>
+
+    <!-- Simulation view: canvas + side panel -->
+    <div id="canvas-row" class="flex">
+      <div id="canvas-wrapper" class="relative overflow-hidden shrink-0" style="width:600px;height:600px">
+        <div id="flash" class="absolute top-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/50 text-white/80 text-[12px] font-medium px-4 py-2 rounded-full border border-white/10 z-10"></div>
+      </div>
+
+      <!-- Side panel -->
+      <div class="flex-1 bg-[#161616] border-l border-white/10 p-5 flex flex-col gap-5 overflow-y-auto" style="height:600px">
+
+        <!-- Live stats -->
+        <div>
+          <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30 mb-3">Live Stats</div>
+          <div class="flex flex-col gap-0.5" id="live-stats"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config panel -->
+    <div id="config-panel" class="hidden bg-[#161616] p-5">
+      <div id="config-sliders"></div>
+    </div>
+
+    <!-- Debug panel -->
+    <div id="debug-panel" class="hidden bg-[#161616] p-5">
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px"><canvas id="chart-throughput"></canvas></div>
+        <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px"><canvas id="chart-queue"></canvas></div>
+        <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px"><canvas id="chart-wait"></canvas></div>
+        <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px"><canvas id="chart-util"></canvas></div>
+      </div>
     </div>
   </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="sketch.js"></script>
+  <script>
+    // ── Direction metadata ─────────────────────────────────────
+    const DIR_LABELS  = { N: '↓ North', S: '↑ South', E: '← East', W: '→ West' };
+    const DIR_COLORS  = { N: '#3b82f6', S: '#f59e0b', E: '#22c55e', W: '#ef4444' };
+    const DIRS        = ['N', 'S', 'E', 'W'];
+
+    // ── Config sliders ────────────────────────────────────────
+    const CONFIG_PARAMS = [
+      { label: 'Approach speed',   varName: 'APPROACH_SPEED', min: 0.5,  max: 4.0,  step: 0.1,   fmt: v => v.toFixed(1) + ' px/f' },
+      { label: 'Proceed speed',    varName: 'PROCEED_SPEED',  min: 0.5,  max: 5.0,  step: 0.1,   fmt: v => v.toFixed(1) + ' px/f' },
+      { label: 'Acceleration',     varName: 'ACCEL_RATE',     min: 0.005,max: 0.1,  step: 0.005, fmt: v => v.toFixed(3) + ' px/f²' },
+      { label: 'Follow decel',     varName: 'FOLLOW_DECEL',   min: 0.01, max: 0.3,  step: 0.01,  fmt: v => v.toFixed(2) + ' px/f²' },
+      { label: 'Brake distance',   varName: 'BRAKE_DIST',     min: 50,   max: 250,  step: 5,     fmt: v => v.toFixed(0) + ' px' },
+      { label: 'Min gap',          varName: 'MIN_GAP',        min: 2,    max: 40,   step: 1,     fmt: v => v.toFixed(0) + ' px' },
+    ];
+
+    const configContainer = document.getElementById('config-sliders');
+    for (const p of CONFIG_PARAMS) {
+      const defaultVal = window[p.varName];
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3';
+      row.innerHTML = `
+        <span class="text-[12px] text-white/50 shrink-0" style="width:110px">${p.label}</span>
+        <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${defaultVal}"
+               id="cfg-${p.varName}" class="flex-1" />
+        <span id="cfg-val-${p.varName}" class="text-[12px] text-white/70 tabular-nums shrink-0"
+              style="width:72px;text-align:right">${p.fmt(defaultVal)}</span>
+      `;
+      configContainer.appendChild(row);
+      document.getElementById(`cfg-${p.varName}`).addEventListener('input', e => {
+        const v = parseFloat(e.target.value);
+        window[p.varName] = v;
+        document.getElementById(`cfg-val-${p.varName}`).textContent = p.fmt(v);
+      });
+    }
+
+    // ── Live stats panel ───────────────────────────────────────
+    const statsContainer = document.getElementById('live-stats');
+    let statsHTML = '';
+    for (const dir of DIRS) {
+      statsHTML += `
+        <div class="flex items-center justify-between py-1.5">
+          <span class="text-[12px] font-medium" style="color:${DIR_COLORS[dir]}">${DIR_LABELS[dir]}</span>
+          <span class="text-[11px] text-white/40 tabular-nums">
+            Queue:&nbsp;<span id="stat-q-${dir}" class="text-white/70">0</span>
+            &nbsp;&nbsp;Flow:&nbsp;<span id="stat-tp-${dir}" class="text-white/70">0</span>/win
+          </span>
+        </div>
+      `;
+    }
+    statsHTML += `
+      <div class="flex items-center justify-between pt-2 mt-1 border-t border-white/10">
+        <span class="text-[12px] text-white/40">Intersection</span>
+        <span class="text-[11px] text-white/40 tabular-nums">
+          <span id="stat-util" class="text-white/70">0</span>% utilized
+        </span>
+      </div>
+    `;
+    statsContainer.innerHTML = statsHTML;
+
+    setInterval(() => {
+      if (typeof metrics === 'undefined') return;
+      for (const dir of DIRS) {
+        document.getElementById(`stat-q-${dir}`).textContent  = metrics.queueLen[dir];
+        document.getElementById(`stat-tp-${dir}`).textContent = metrics.throughput[dir];
+      }
+      if (typeof simHistory !== 'undefined' && simHistory.util.length > 0) {
+        document.getElementById('stat-util').textContent = simHistory.util[simHistory.util.length - 1];
+      }
+    }, 500);
+
+    // ── Chart.js setup ─────────────────────────────────────────
+    let charts = null;
+
+    function chartBase(title, yLabel) {
+      return {
+        type: 'line',
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: title,
+              color: 'rgba(255,255,255,0.6)',
+              font: { size: 12, family: 'Inter, sans-serif' },
+              padding: { bottom: 6 },
+            },
+            legend: {
+              labels: {
+                color: 'rgba(255,255,255,0.45)',
+                boxWidth: 10,
+                font: { size: 11 },
+                padding: 8,
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: 'rgba(255,255,255,0.35)', maxTicksLimit: 8, font: { size: 10 } },
+              grid:  { color: 'rgba(255,255,255,0.05)' },
+              border: { color: 'rgba(255,255,255,0.1)' },
+            },
+            y: {
+              ticks: { color: 'rgba(255,255,255,0.35)', font: { size: 10 } },
+              grid:  { color: 'rgba(255,255,255,0.05)' },
+              border: { color: 'rgba(255,255,255,0.1)' },
+              title: {
+                display: true, text: yLabel,
+                color: 'rgba(255,255,255,0.25)', font: { size: 10 },
+              },
+            },
+          },
+        },
+      };
+    }
+
+    function makeMultiChart(canvasId, title, yLabel) {
+      const cfg = chartBase(title, yLabel);
+      cfg.data = {
+        labels: [],
+        datasets: DIRS.map(dir => ({
+          label: dir,
+          data: [],
+          borderColor: DIR_COLORS[dir],
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+        })),
+      };
+      return new Chart(document.getElementById(canvasId), cfg);
+    }
+
+    function makeUtilChart(canvasId) {
+      const cfg = chartBase('Intersection Utilization', '% active');
+      cfg.data = {
+        labels: [],
+        datasets: [{
+          label: 'Utilization',
+          data: [],
+          borderColor: '#a78bfa',
+          backgroundColor: 'rgba(167,139,250,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+        }],
+      };
+      cfg.options.scales.y.min = 0;
+      cfg.options.scales.y.max = 100;
+      return new Chart(document.getElementById(canvasId), cfg);
+    }
+
+    function initCharts() {
+      if (charts) return;
+      charts = {
+        throughput: makeMultiChart('chart-throughput', 'Throughput per Lane',     'cars/window'),
+        queue:      makeMultiChart('chart-queue',      'Queue Depth per Lane',    'cars'),
+        wait:       makeMultiChart('chart-wait',       'Avg Wait Time per Lane',  'seconds'),
+        util:       makeUtilChart ('chart-util'),
+      };
+    }
+
+    function fmtHour(h) {
+      const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+      return `${hh % 12 || 12}:${String(mm).padStart(2,'0')}${hh < 12 ? 'a' : 'p'}`;
+    }
+
+    function updateCharts() {
+      if (!charts || typeof simHistory === 'undefined') return;
+      const labels = simHistory.simTime.map(fmtHour);
+      for (const [key, prop] of [['throughput','tp'], ['queue','q'], ['wait','w']]) {
+        const chart = charts[key];
+        chart.data.labels = labels;
+        DIRS.forEach((dir, i) => { chart.data.datasets[i].data = [...simHistory[dir][prop]]; });
+        chart.update('none');
+      }
+      charts.util.data.labels = labels;
+      charts.util.data.datasets[0].data = [...simHistory.util];
+      charts.util.update('none');
+    }
+
+    setInterval(updateCharts, 1000);
+
+    // ── Mode / debug / config toggle ──────────────────────────
+    const canvasRow   = document.getElementById('canvas-row');
+    const debugPanel  = document.getElementById('debug-panel');
+    const configPanel = document.getElementById('config-panel');
+    const btnDebug    = document.getElementById('btn-debug');
+    const btnConfig   = document.getElementById('btn-config');
+
+    const modeSelect = document.getElementById('mode-select');
+    let lastSimMode = '4way';
+
+    function showCanvas() {
+      canvasRow.classList.remove('hidden');
+      debugPanel.classList.add('hidden');
+      configPanel.classList.add('hidden');
+      btnDebug.classList.remove('active');
+      btnConfig.classList.remove('active');
+      modeSelect.value = lastSimMode;
+    }
+
+    modeSelect.addEventListener('change', e => {
+      lastSimMode = e.target.value;
+      showCanvas();
+      if (e.target.value !== '4way') {
+        showFlash(e.target.options[e.target.selectedIndex].text + ' — coming soon!');
+      }
+    });
+
+    btnDebug.addEventListener('click', () => {
+      if (btnDebug.classList.contains('active')) { showCanvas(); return; }
+      modeSelect.value = '__tab__';
+      canvasRow.classList.add('hidden');
+      debugPanel.classList.remove('hidden');
+      btnDebug.classList.add('active');
+      btnConfig.classList.remove('active');
+      initCharts();
+      updateCharts();
+    });
+
+    btnConfig.addEventListener('click', () => {
+      if (btnConfig.classList.contains('active')) { showCanvas(); return; }
+      modeSelect.value = '__tab__';
+      canvasRow.classList.add('hidden');
+      debugPanel.classList.add('hidden');
+      configPanel.classList.remove('hidden');
+      btnConfig.classList.add('active');
+      btnDebug.classList.remove('active');
+    });
+  </script>
 </body>
 </html>
