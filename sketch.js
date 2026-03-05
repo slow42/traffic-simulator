@@ -233,6 +233,10 @@ function flowMult(dir, h) {
 }
 
 function initCongestionSchedule() {
+  const saved = localStorage.getItem('congestionScheduleDefault');
+  if (saved) {
+    try { return JSON.parse(saved); } catch(e) {}
+  }
   const s = {};
   for (const dir of ['N','S','E','W'])
     s[dir] = Array.from({length: 24}, (_, h) => BASE_FLOW[dir] * flowMult(dir, h));
