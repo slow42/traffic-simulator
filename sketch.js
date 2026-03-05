@@ -48,7 +48,7 @@ let activeMode = '4way';
 let nextSpawn = {};
 let flashTimeout;
 
-let congestionMult = { N: 1, S: 1, E: 1, W: 1 };
+let congestionSchedule = null;
 
 let metrics = {
   throughput: { N: 0, S: 0, E: 0, W: 0 },
@@ -232,11 +232,24 @@ function flowMult(dir, h) {
   return m;
 }
 
+function initCongestionSchedule() {
+  const s = {};
+  for (const dir of ['N','S','E','W'])
+    s[dir] = Array.from({length: 24}, (_, h) => BASE_FLOW[dir] * flowMult(dir, h));
+  return s;
+}
+
+function getCongestionRate(dir, h) {
+  const s = congestionSchedule[dir];
+  const h0 = Math.floor(h) % 24, h1 = (h0 + 1) % 24;
+  return s[h0] + (s[h1] - s[h0]) * (h - Math.floor(h));
+}
+
 // Frames between spawns for a direction at a given sim-hour, with arrival noise.
 function nextSpawnInterval(dir, h) {
-  if (congestionMult[dir] === 0) return 1e9;
+  if (getCongestionRate(dir, h) <= 0) return 1e9;
   const framesPerSimHour = (60 / SIM_SPEED) * 60; // at SIM_SPEED=20 → 180 frames/sim-hr
-  const base = framesPerSimHour / BASE_FLOW[dir] / flowMult(dir, h) / congestionMult[dir];
+  const base = framesPerSimHour / getCongestionRate(dir, h);
   const jitter = randomGaussian(0, ARRIVAL_NOISE * base);
   return max(MIN_SPAWN_FRAMES, round(base + jitter));
 }
@@ -262,6 +275,7 @@ function showFlash(msg) {
 function setup() {
   const cnv = createCanvas(CANVAS_W, CANVAS_H);
   cnv.parent('canvas-wrapper');
+  congestionSchedule = initCongestionSchedule();
   for (const dir of ['N', 'S', 'E', 'W']) nextSpawn[dir] = 0;
 }
 

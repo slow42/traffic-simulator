@@ -113,6 +113,19 @@
     <!-- Config panel -->
     <div id="config-panel" class="hidden bg-[#161616] p-5">
       <div id="config-sliders"></div>
+      <div class="mt-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30">
+            Congestion Schedule
+          </div>
+          <button id="btn-reset-schedule" class="text-[11px] text-white/30 hover:text-white/60 transition-colors">
+            Reset to default
+          </button>
+        </div>
+        <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px">
+          <canvas id="chart-congestion"></canvas>
+        </div>
+      </div>
     </div>
 
     <!-- Debug panel -->
@@ -128,6 +141,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-dragdata@2.2.5/dist/chartjs-plugin-dragdata.min.js"></script>
   <script src="sketch.js"></script>
   <script>
     // ── Direction metadata ─────────────────────────────────────
@@ -315,6 +329,81 @@
 
     setInterval(updateCharts, 1000);
 
+    // ── Congestion schedule chart ──────────────────────────────
+    const HOUR_LABELS = ['12a','1a','2a','3a','4a','5a','6a','7a','8a','9a','10a','11a',
+                         '12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p','11p'];
+
+    const timeCursorPlugin = {
+      id: 'timeCursor',
+      afterDraw(chart) {
+        if (typeof simHour === 'undefined' || typeof congestionSchedule === 'undefined' || !congestionSchedule) return;
+        const h = simHour() % 24;
+        const xScale = chart.scales.x;
+        const h0 = Math.floor(h);
+        const h1 = (h0 + 1) % 24;
+        const frac = h - h0;
+        const x0 = xScale.getPixelForValue(h0);
+        const x1 = h1 === 0 ? x0 : xScale.getPixelForValue(h1);
+        const x = x0 + frac * (x1 - x0);
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, chart.chartArea.top);
+        ctx.lineTo(x, chart.chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+    let congestionChart = null;
+
+    function initCongestionChart() {
+      if (congestionChart) return;
+      const cfg = chartBase('Congestion Schedule', 'veh/hr');
+      cfg.plugins = [timeCursorPlugin];
+      cfg.data = {
+        labels: HOUR_LABELS,
+        datasets: DIRS.map(dir => ({
+          label: dir,
+          data: [...congestionSchedule[dir]],
+          borderColor: DIR_COLORS[dir],
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          tension: 0.3,
+        })),
+      };
+      cfg.options.animation = false;
+      cfg.options.scales.y.min = 0;
+      cfg.options.scales.y.max = 5;
+      cfg.options.scales.x.ticks.maxTicksLimit = 9;
+      cfg.options.plugins.dragData = {
+        round: 2,
+        onDragEnd(e, datasetIndex, index, value) {
+          congestionSchedule[DIRS[datasetIndex]][index] = value;
+        },
+      };
+      congestionChart = new Chart(document.getElementById('chart-congestion'), cfg);
+    }
+
+    setInterval(() => {
+      if (congestionChart) congestionChart.update('none');
+    }, 1000);
+
+    document.getElementById('btn-reset-schedule').addEventListener('click', () => {
+      if (typeof initCongestionSchedule === 'undefined' || !congestionChart) return;
+      const fresh = initCongestionSchedule();
+      // initCongestionSchedule uses p5 exp(); call it only after p5 is ready
+      DIRS.forEach((dir, i) => {
+        congestionSchedule[dir] = fresh[dir];
+        congestionChart.data.datasets[i].data = [...fresh[dir]];
+      });
+      congestionChart.update('none');
+    });
+
     // ── Mode / debug / config toggle ──────────────────────────
     const canvasRow   = document.getElementById('canvas-row');
     const debugPanel  = document.getElementById('debug-panel');
@@ -361,6 +450,14 @@
       configPanel.classList.remove('hidden');
       btnConfig.classList.add('active');
       btnDebug.classList.remove('active');
+      // Re-seed chart from live schedule, then init if first open
+      if (congestionChart && typeof congestionSchedule !== 'undefined' && congestionSchedule) {
+        DIRS.forEach((dir, i) => {
+          congestionChart.data.datasets[i].data = [...congestionSchedule[dir]];
+        });
+        congestionChart.update('none');
+      }
+      initCongestionChart();
     });
   </script>
 </body>
