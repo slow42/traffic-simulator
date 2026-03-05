@@ -90,7 +90,7 @@
         <button id="btn-debug"  class="tab-btn px-3.5 py-1.5 text-[13px] font-medium rounded-md">Debug</button>
         <button id="btn-config" class="tab-btn px-3.5 py-1.5 text-[13px] font-medium rounded-md">Config</button>
       </div>
-      <span id="sim-clock" class="text-[13px] text-white/40 tabular-nums w-16 text-right shrink-0"></span>
+      <span id="sim-clock" class="text-[13px] text-white/40 tabular-nums w-28 text-right shrink-0"></span>
     </nav>
 
     <!-- Simulation view: canvas + side panel -->
@@ -104,7 +104,16 @@
 
         <!-- Live stats -->
         <div>
-          <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30 mb-3">Live Stats</div>
+          <div class="flex items-center gap-1.5 mb-3">
+            <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30">Live Stats</div>
+            <span class="relative group cursor-help">
+              <span class="text-[9px] text-white/25 border border-white/20 rounded-full inline-flex items-center justify-center" style="width:13px;height:13px;line-height:1">i</span>
+              <div class="absolute left-0 top-5 hidden group-hover:block w-56 bg-[#252525] border border-white/10 rounded-lg p-3 text-[11px] text-white/60 leading-relaxed z-50 shadow-xl pointer-events-none">
+                <div><span class="text-white/80 font-medium">Queue</span> — cars currently stopped at the stop line waiting to enter the intersection.</div>
+                <div class="mt-1.5"><span class="text-white/80 font-medium">Flow</span> — cars that cleared the intersection in the last second (real time).</div>
+              </div>
+            </span>
+          </div>
           <div class="flex flex-col gap-0.5" id="live-stats"></div>
         </div>
       </div>
@@ -120,8 +129,9 @@
       <div id="config-sliders"></div>
       <div class="mt-6">
         <div class="flex items-center justify-between mb-3">
-          <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30">
-            Congestion Schedule
+          <div class="flex items-center gap-2">
+            <div class="text-[11px] font-medium tracking-[0.12em] uppercase text-white/30">Congestion Schedule</div>
+            <div class="text-[10px] text-white/20">click to jump</div>
           </div>
           <button id="btn-set-default-schedule" class="text-[11px] text-white/30 hover:text-white/60 transition-colors">
             Set as default
@@ -131,7 +141,7 @@
           </button>
         </div>
         <div class="bg-[#1a1a1a] rounded-lg p-3" style="height:220px">
-          <canvas id="chart-congestion"></canvas>
+          <canvas id="chart-congestion" style="cursor:crosshair"></canvas>
         </div>
       </div>
     </div>
@@ -159,15 +169,15 @@
 
     // ── Config sliders ────────────────────────────────────────
     const CONFIG_PARAMS = [
-      { label: 'Approach speed',   varName: 'APPROACH_SPEED', min: 0.5,  max: 4.0,  step: 0.1,   fmt: v => v.toFixed(1) + ' px/f' },
-      { label: 'Proceed speed',    varName: 'PROCEED_SPEED',  min: 0.5,  max: 5.0,  step: 0.1,   fmt: v => v.toFixed(1) + ' px/f' },
-      { label: 'Acceleration',     varName: 'ACCEL_RATE',     min: 0.005,max: 0.1,  step: 0.005, fmt: v => v.toFixed(3) + ' px/f²' },
-      { label: 'Follow decel',     varName: 'FOLLOW_DECEL',   min: 0.01, max: 0.3,  step: 0.01,  fmt: v => v.toFixed(2) + ' px/f²' },
-      { label: 'Brake distance',   varName: 'BRAKE_DIST',     min: 50,   max: 250,  step: 5,     fmt: v => v.toFixed(0) + ' px' },
+      { label: 'Approach speed',   varName: 'APPROACH_SPEED', min: 0.05, max: 2.0,  step: 0.05,  fmt: v => (v * 28.8).toFixed(0) + ' km/h' },
+      { label: 'Proceed speed',    varName: 'PROCEED_SPEED',  min: 0.05, max: 5.0,  step: 0.05,  fmt: v => (v * 28.8).toFixed(0) + ' km/h' },
+      { label: 'Acceleration',     varName: 'ACCEL_RATE',     min: 0.001,max: 0.05, step: 0.001, fmt: v => v.toFixed(3) + ' px/f²' },
+      { label: 'Follow decel',     varName: 'FOLLOW_DECEL',   min: 0.001,max: 0.1,  step: 0.001, fmt: v => v.toFixed(3) + ' px/f²' },
+      { label: 'Brake distance',   varName: 'BRAKE_DIST',     min: 10,   max: 200,  step: 5,     fmt: v => v.toFixed(0) + ' px' },
       { label: 'Min gap',          varName: 'MIN_GAP',        min: 2,    max: 40,   step: 1,     fmt: v => v.toFixed(0) + ' px' },
-      { label: 'Congestion scale', varName: 'CONGESTION_SCALE', min: 0.1, max: 10, step: 0.1,  fmt: v => v.toFixed(1) + '×' },
+      { label: 'Congestion scale', varName: 'CONGESTION_SCALE', min: 0.1, max: 100, step: 0.1,  fmt: v => v.toFixed(1) + '×' },
       { label: 'Arrival variance', varName: 'ARRIVAL_NOISE',   min: 0,   max: 2,  step: 0.05, fmt: v => v.toFixed(2) },
-      { label: 'Sim speed',        varName: 'SIM_SPEED',       min: 1,   max: 120, step: 1,   fmt: v => v.toFixed(0) + ' sim-min/s' },
+      { label: 'Sim speed',        varName: 'SIM_SPEED',       min: 1,   max: 3600, step: 1,   fmt: v => v.toFixed(0) + '× real time' },
     ];
 
     // Capture hardcoded defaults before any overrides
@@ -185,24 +195,47 @@
       } catch(e) {}
     }
 
+    const fmtRaw = v => parseFloat(v.toPrecision(6)).toString();
+
     const configContainer = document.getElementById('config-sliders');
     for (const p of CONFIG_PARAMS) {
       const defaultVal = window[p.varName];
       const row = document.createElement('div');
-      row.className = 'flex items-center gap-3';
+      row.className = 'flex items-center gap-2';
       row.innerHTML = `
         <span class="text-[12px] text-white/50 shrink-0" style="width:110px">${p.label}</span>
         <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${defaultVal}"
                id="cfg-${p.varName}" class="flex-1" />
-        <span id="cfg-val-${p.varName}" class="text-[12px] text-white/70 tabular-nums shrink-0"
-              style="width:72px;text-align:right">${p.fmt(defaultVal)}</span>
+        <input type="text" id="cfg-txt-${p.varName}" value="${fmtRaw(defaultVal)}"
+               class="text-[12px] text-white/70 tabular-nums text-right bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0"
+               style="width:58px" />
+        <span id="cfg-val-${p.varName}" class="text-[12px] text-white/40 tabular-nums shrink-0"
+              style="width:68px;text-align:right">${p.fmt(defaultVal)}</span>
       `;
       configContainer.appendChild(row);
-      document.getElementById(`cfg-${p.varName}`).addEventListener('input', e => {
-        const v = parseFloat(e.target.value);
+
+      const slider   = document.getElementById(`cfg-${p.varName}`);
+      const txtInput = document.getElementById(`cfg-txt-${p.varName}`);
+      const valSpan  = document.getElementById(`cfg-val-${p.varName}`);
+
+      const applyValue = v => {
         window[p.varName] = v;
-        document.getElementById(`cfg-val-${p.varName}`).textContent = p.fmt(v);
-      });
+        slider.value       = v;
+        txtInput.value     = fmtRaw(v);
+        valSpan.textContent = p.fmt(v);
+      };
+
+      slider.addEventListener('input', e => applyValue(parseFloat(e.target.value)));
+
+      const commitText = () => {
+        let v = parseFloat(txtInput.value);
+        if (isNaN(v)) { txtInput.value = fmtRaw(window[p.varName]); return; }
+        v = Math.min(p.max, Math.max(p.min, v));
+        v = Math.round(v / p.step) * p.step;
+        applyValue(v);
+      };
+      txtInput.addEventListener('change', commitText);
+      txtInput.addEventListener('keydown', e => { if (e.key === 'Enter') { commitText(); txtInput.blur(); } });
     }
 
     document.getElementById('btn-set-default-sliders').addEventListener('click', () => {
@@ -221,6 +254,7 @@
         const v = defaults[p.varName] ?? SLIDER_CODED_DEFAULTS[p.varName];
         window[p.varName] = v;
         document.getElementById(`cfg-${p.varName}`).value = v;
+        document.getElementById(`cfg-txt-${p.varName}`).value = fmtRaw(v);
         document.getElementById(`cfg-val-${p.varName}`).textContent = p.fmt(v);
       }
     });
@@ -234,7 +268,7 @@
           <span class="text-[12px] font-medium" style="color:${DIR_COLORS[dir]}">${DIR_LABELS[dir]}</span>
           <span class="text-[11px] text-white/40 tabular-nums">
             Queue:&nbsp;<span id="stat-q-${dir}" class="text-white/70">0</span>
-            &nbsp;&nbsp;Flow:&nbsp;<span id="stat-tp-${dir}" class="text-white/70">0</span>/win
+            &nbsp;&nbsp;Flow:&nbsp;<span id="stat-tp-${dir}" class="text-white/70">0</span>/s
           </span>
         </div>
       `;
@@ -253,7 +287,7 @@
       if (typeof metrics === 'undefined') return;
       for (const dir of DIRS) {
         document.getElementById(`stat-q-${dir}`).textContent  = metrics.queueLen[dir];
-        document.getElementById(`stat-tp-${dir}`).textContent = metrics.throughput[dir];
+        document.getElementById(`stat-tp-${dir}`).textContent = typeof lastThroughput !== 'undefined' ? lastThroughput[dir] : 0;
       }
       if (typeof simHistory !== 'undefined' && simHistory.util.length > 0) {
         document.getElementById('stat-util').textContent = simHistory.util[simHistory.util.length - 1];
@@ -347,7 +381,7 @@
     function initCharts() {
       if (charts) return;
       charts = {
-        throughput: makeMultiChart('chart-throughput', 'Throughput per Lane',     'cars/window'),
+        throughput: makeMultiChart('chart-throughput', 'Throughput per Lane',     'cars/s'),
         queue:      makeMultiChart('chart-queue',      'Queue Depth per Lane',    'cars'),
         wait:       makeMultiChart('chart-wait',       'Avg Wait Time per Lane',  'seconds'),
         util:       makeUtilChart ('chart-util'),
@@ -433,6 +467,19 @@
         },
       };
       congestionChart = new Chart(document.getElementById('chart-congestion'), cfg);
+
+      const cgCanvas = document.getElementById('chart-congestion');
+      cgCanvas.addEventListener('click', e => {
+        if (typeof jumpToHour === 'undefined') return;
+        const rect = cgCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const xScale = congestionChart.scales.x;
+        if (x < xScale.left || x > xScale.right) return;
+        const h = xScale.getValueForPixel(x);
+        if (h === null || isNaN(h) || h < 0 || h >= 24) return;
+        jumpToHour(h);
+        showFlash('Jumped to ' + formatSimTime(h));
+      });
     }
 
     setInterval(() => {
